@@ -315,7 +315,7 @@ for i in openai_llms_list :
     
     print(f"LLM Running now : {i['name']}")
     
-    if i['api_key'] is None:
+    if i['base_url'] is None:
         client = OpenAI(api_key=i['api_key'])
     else:
         client = OpenAI(api_key=i['api_key'], base_url=i['base_url'])

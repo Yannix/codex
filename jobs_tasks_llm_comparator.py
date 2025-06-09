@@ -395,5 +395,30 @@ df_choice = df_choice.fillna('N/A')
 df.to_excel(r'C:\Workspace\mayeleai\llm_result_' + pd.to_datetime('now').strftime('%Y_%m_%d_%H_%M') + '.xlsx')
 df_choice.to_excel(r'C:\Workspace\mayeleai\llm_result_choice_' + pd.to_datetime('now').strftime('%Y_%m_%d_%H_%M') + '.xlsx')
 
+## LLM as judge - use GPT-4o to determine the best response
+judge_system_prompt = "Vous êtes un juge expert chargé de comparer différentes réponses à un même problème et d'identifier celle qui est la plus pertinente, claire et complète.".strip()
+
+judge_messages = [{"role": "system", "content": judge_system_prompt}]
+
+for name, response in llm_responses:
+    judge_messages.append({"role": "assistant", "content": f"Réponse de {name} :\n{response}"})
+
+judge_messages.append({"role": "user", "content": "Quelle est la meilleure réponse ? Veuillez répondre au format JSON : {'best_llm': 'nom', 'reason': 'explication courte'}"})
+
+judge_client = OpenAI(api_key=OPEN_AI_KEY)
+judge_response = judge_client.chat.completions.create(
+    model="gpt-4o",
+    messages=judge_messages,
+    stream=False
+)
+
+best_llm_raw = judge_response.choices[0].message.content.strip()
+try:
+    best_llm_raw = best_llm_raw.strip('```json').strip('```')
+    best_llm = ast.literal_eval(best_llm_raw)
+    print(f"LLM gagnant : {best_llm.get('best_llm')}\nRaison : {best_llm.get('reason')}")
+except Exception:
+    print(best_llm_raw)
+
 script_end_time = time.time()
 print("Time to execute the script : %s seconds" % (script_end_time - script_start_time))

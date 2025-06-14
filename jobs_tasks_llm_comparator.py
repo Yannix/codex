@@ -59,6 +59,8 @@ openai_llms_list = [ {'identifier' : 'gpt-4.1',         'name' : 'GPT 4.1',     
 mistral_llms_list = [   {'identifier' : 'mistral-medium-2505',  'name' : 'Mistral Medium',  'provider' : 'Mistral', 'api_key' : MISTRAL_AI_KEY },
                         {'identifier' : 'mistral-large-2411',   'name' : 'Mistral Large',   'provider' : 'Mistral', 'api_key' : MISTRAL_AI_KEY },
                         {'identifier' : 'mistral-small-2503',   'name' : 'Mistral Small',   'provider' : 'Mistral', 'api_key' : MISTRAL_AI_KEY },
+                        {'identifier' : 'magistral-medium-2506','name' : 'Magistral Medium', 'provider' : 'Mistral', 'api_key' : MISTRAL_AI_KEY },
+                        {'identifier' : 'magistral-small-2506', 'name' : 'Magistral Small',  'provider' : 'Mistral', 'api_key' : MISTRAL_AI_KEY },
                     ]
 
 

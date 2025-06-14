@@ -8,6 +8,7 @@ Created on Sat May 31 17:23:14 2025
 from openai import OpenAI
 from mistralai import Mistral
 import time
+import asyncio
 import os
 import json
 import re
@@ -307,118 +308,117 @@ USER_PROMPT = f"""
 
 ## LLM API queries
 
-llm_responses = []
-
-for i in openai_llms_list :
-    
+async def fetch_openai_response(llm):
     start_time = time.time()
-    
-    print(f"LLM Running now : {i['name']}")
-    
-    if i['base_url'] is None:
-        client = OpenAI(api_key=i['api_key'])
+    print(f"LLM Running now : {llm['name']}")
+    if llm['base_url'] is None:
+        client = OpenAI(api_key=llm['api_key'])
     else:
-        client = OpenAI(api_key=i['api_key'], base_url=i['base_url'])
+        client = OpenAI(api_key=llm['api_key'], base_url=llm['base_url'])
 
-    response = client.chat.completions.create(
-        model = i['identifier'],
+    response = await asyncio.to_thread(
+        client.chat.completions.create,
+        model=llm['identifier'],
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": USER_PROMPT},
         ],
-        stream=False
+        stream=False,
     )
 
     response = response.choices[0].message.content
-    llm_responses.append((i['name'], response))
-    
-    end_time = time.time()
-
-    print("LLM time to execute : %s seconds" % (end_time - start_time))
+    print("LLM time to execute : %s seconds" % (time.time() - start_time))
     print("--")
-    
+    return llm['name'], response
 
-for i in mistral_llms_list :
-    
+
+async def fetch_mistral_response(llm):
     start_time = time.time()
-    
-    print(f"LLM Running now : {i['name']}")
-    
-    client = Mistral(api_key=i['api_key'])
+    print(f"LLM Running now : {llm['name']}")
+    client = Mistral(api_key=llm['api_key'])
 
-    response = client.chat.complete(
-        model= i['identifier'],
-        messages = [
+    response = await asyncio.to_thread(
+        client.chat.complete,
+        model=llm['identifier'],
+        messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": USER_PROMPT},
-        ]
+        ],
     )
 
     response = response.choices[0].message.content
-    llm_responses.append((i['name'], response))
-    
-    end_time = time.time()
-
-    print("LLM time to execute : %s seconds" % (end_time - start_time))
+    print("LLM time to execute : %s seconds" % (time.time() - start_time))
     print("--")
+    return llm['name'], response
 
 
-## Result in nice format
+async def query_llms():
+    tasks = [fetch_openai_response(i) for i in openai_llms_list]
+    tasks.extend(fetch_mistral_response(i) for i in mistral_llms_list)
+    return await asyncio.gather(*tasks)
 
-result_table = []
 
-for llm_response in llm_responses:
-    llm_stack = llm_response[1].strip()
-    llm_stack = llm_stack.strip('```json')
-    llm_stack = llm_stack.strip('```')
-    llm_stack = llm_stack.strip("\n")
-    #llm_stack = re.sub(r"(\s*\{\s*|\s*,\s*)'([^']+)':", r'\1"\2":', llm_stack)
-    #llm_stack = ast.literal_eval(json.dumps(llm_stack))
-    llm_stack = ast.literal_eval(llm_stack)
-    #llm_stack = llm_stack.replace("\'", "\"")
-    #llm_stack = json.loads(llm_stack)
-    
-    
-    llm = llm_response[0]
-    summary = llm_stack['summary']
-    stacks = llm_stack['stacks']
-    
-    for stack in stacks :
-        result_table.append([llm.strip(), summary.strip(), stack['label'].strip(), stack['choix'].strip(), stack['raisons'].strip()])
-    
+async def main():
+    llm_responses = await query_llms()
 
-df = pd.DataFrame(data=result_table, columns=['LLM', 'Use case summary', 'Stack', 'Choice', 'Reason'])
+    ## Result in nice format
+    result_table = []
 
-df_choice = pd.crosstab(index = df['Stack'], columns = df['LLM'], values = df['Choice'], aggfunc='first')
-df_choice = df_choice.fillna('N/A')
+    for llm_response in llm_responses:
+        llm_stack = llm_response[1].strip()
+        llm_stack = llm_stack.strip('```json')
+        llm_stack = llm_stack.strip('```')
+        llm_stack = llm_stack.strip("\n")
+        #llm_stack = re.sub(r"(\s*\{\s*|\s*,\s*)'([^']+)':", r'\1"\2":', llm_stack)
+        #llm_stack = ast.literal_eval(json.dumps(llm_stack))
+        llm_stack = ast.literal_eval(llm_stack)
+        #llm_stack = llm_stack.replace("\'", "\"")
+        #llm_stack = json.loads(llm_stack)
 
-df.to_excel(r'C:\Workspace\mayeleai\llm_result_' + pd.to_datetime('now').strftime('%Y_%m_%d_%H_%M') + '.xlsx')
-df_choice.to_excel(r'C:\Workspace\mayeleai\llm_result_choice_' + pd.to_datetime('now').strftime('%Y_%m_%d_%H_%M') + '.xlsx')
+        llm = llm_response[0]
+        summary = llm_stack['summary']
+        stacks = llm_stack['stacks']
 
-## LLM as judge - use GPT-4o to determine the best response
-judge_system_prompt = "Vous êtes un juge expert chargé de comparer différentes réponses à un même problème et d'identifier celle qui est la plus pertinente, claire et complète.".strip()
+        for stack in stacks :
+            result_table.append([llm.strip(), summary.strip(), stack['label'].strip(), stack['choix'].strip(), stack['raisons'].strip()])
 
-judge_messages = [{"role": "system", "content": judge_system_prompt}]
+    df = pd.DataFrame(data=result_table, columns=['LLM', 'Use case summary', 'Stack', 'Choice', 'Reason'])
 
-for name, response in llm_responses:
-    judge_messages.append({"role": "assistant", "content": f"Réponse de {name} :\n{response}"})
+    df_choice = pd.crosstab(index=df['Stack'], columns=df['LLM'], values=df['Choice'], aggfunc='first')
+    df_choice = df_choice.fillna('N/A')
 
-judge_messages.append({"role": "user", "content": "Quelle est la meilleure réponse ? Veuillez répondre au format JSON : {'best_llm': 'nom', 'reason': 'explication courte'}"})
+    df.to_excel(r'C:\Workspace\mayeleai\llm_result_' + pd.to_datetime('now').strftime('%Y_%m_%d_%H_%M') + '.xlsx')
+    df_choice.to_excel(r'C:\Workspace\mayeleai\llm_result_choice_' + pd.to_datetime('now').strftime('%Y_%m_%d_%H_%M') + '.xlsx')
 
-judge_client = OpenAI(api_key=OPEN_AI_KEY)
-judge_response = judge_client.chat.completions.create(
-    model="gpt-4o",
-    messages=judge_messages,
-    stream=False
-)
+    ## LLM as judge - use GPT-4o to determine the best response
+    judge_system_prompt = "Vous êtes un juge expert chargé de comparer différentes réponses à un même problème et d'identifier celle qui est la plus pertinente, claire et complète.".strip()
 
-best_llm_raw = judge_response.choices[0].message.content.strip()
-try:
-    best_llm_raw = best_llm_raw.strip('```json').strip('```')
-    best_llm = ast.literal_eval(best_llm_raw)
-    print(f"LLM gagnant : {best_llm.get('best_llm')}\nRaison : {best_llm.get('reason')}")
-except Exception:
-    print(best_llm_raw)
+    judge_messages = [{"role": "system", "content": judge_system_prompt}]
 
-script_end_time = time.time()
-print("Time to execute the script : %s seconds" % (script_end_time - script_start_time))
+    for name, response in llm_responses:
+        judge_messages.append({"role": "assistant", "content": f"Réponse de {name} :\n{response}"})
+
+    judge_messages.append({"role": "user", "content": "Quelle est la meilleure réponse ? Veuillez répondre au format JSON : {'best_llm': 'nom', 'reason': 'explication courte'}"})
+
+    judge_client = OpenAI(api_key=OPEN_AI_KEY)
+    judge_response = await asyncio.to_thread(
+        judge_client.chat.completions.create,
+        model="gpt-4o",
+        messages=judge_messages,
+        stream=False,
+    )
+
+    best_llm_raw = judge_response.choices[0].message.content.strip()
+    try:
+        best_llm_raw = best_llm_raw.strip('```json').strip('```')
+        best_llm = ast.literal_eval(best_llm_raw)
+        print(f"LLM gagnant : {best_llm.get('best_llm')}\nRaison : {best_llm.get('reason')}")
+    except Exception:
+        print(best_llm_raw)
+
+    script_end_time = time.time()
+    print("Time to execute the script : %s seconds" % (script_end_time - script_start_time))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
